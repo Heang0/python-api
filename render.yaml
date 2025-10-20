@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: ysg-telegram-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        value: 8338081238:AAHeUKy9XL7kgeUUvXdQExCMp9nQtqUhrFQ
