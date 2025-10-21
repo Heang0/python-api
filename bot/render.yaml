@@ -9,6 +9,6 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: API_BASE_URL
-        value: https://your-main-api.onrender.com/api
+        value: https://menuqrcode.onrender.com/api
       - key: STORE_SLUG
         value: ysg

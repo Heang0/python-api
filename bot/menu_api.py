@@ -29,7 +29,7 @@ class MenuAPI:
         """Fetch products from main API"""
         try:
             url = f"{cls.API_BASE_URL}/products/public-store/slug/{cls.STORE_SLUG}"
-            params = {"category": category_id} if category_id else {}
+            params = {"category": category_id} if category_id and category_id != "all" else {}
             
             response = requests.get(url, params=params, timeout=10)
             if response.status_code == 200:

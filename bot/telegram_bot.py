@@ -5,9 +5,9 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from dotenv import load_dotenv
 
 from bot.menu_api import MenuAPI
-from bot.handlers.start import start
+from bot.handlers.start import start, store_info
 from bot.handlers.categories import show_categories, handle_category_select
-from bot.handlers.products import show_products, handle_product_detail
+from bot.handlers.products import show_products
 
 # Load environment variables
 load_dotenv()
@@ -39,8 +39,8 @@ def main():
         application.add_handler(CallbackQueryHandler(show_categories, pattern="^categories$"))
         application.add_handler(CallbackQueryHandler(handle_category_select, pattern="^category_"))
         application.add_handler(CallbackQueryHandler(show_products, pattern="^products_"))
+        application.add_handler(CallbackQueryHandler(store_info, pattern="^store_info$"))
         application.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
-        application.add_handler(CallbackQueryHandler(show_categories, pattern="^back_categories$"))
         
         # Start the Bot
         logger.info("Bot is starting...")
