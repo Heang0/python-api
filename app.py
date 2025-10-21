@@ -1,9 +1,11 @@
 import os
 import logging
 import requests
+import asyncio
 from flask import Flask, request, jsonify
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from threading import Thread
 
 # Set up logging
 logging.basicConfig(
@@ -21,6 +23,7 @@ RENDER_URL = "https://python-api-912v.onrender.com"  # Your Render URL
 
 # Global application instance
 application = None
+bot_setup_done = False
 
 # Cache
 cache = {
@@ -57,13 +60,17 @@ def health():
     return jsonify({
         'status': 'healthy',
         'platform': 'python',
-        'webhook': True
+        'webhook': True,
+        'bot_setup': bot_setup_done
     })
 
 # Webhook route - Telegram sends updates here
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
+        if application is None:
+            return 'Bot not initialized', 500
+            
         update = Update.de_json(request.get_json(), application.bot)
         application.update_queue.put(update)
         return 'OK'
@@ -416,58 +423,56 @@ async def handle_store_info(chat_id):
 
 # Setup bot
 async def setup_bot():
-    global application
+    global application, bot_setup_done
     
-    # Create Application
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add handlers
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("menu", menu_command))
-    application.add_handler(CommandHandler("categories", categories_command))
-    application.add_handler(CommandHandler("all", all_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Set bot commands
-    await application.bot.set_my_commands([
-        ("start", "🚀 Start the bot"),
-        ("menu", "📋 Show main menu"),
-        ("categories", "📂 Browse categories"),
-        ("all", "🍽️ View all items"),
-        ("help", "❓ Get help")
-    ])
-    
-    # Set webhook
-    webhook_url = f"{RENDER_URL}/webhook"
-    await application.bot.set_webhook(webhook_url)
-    logger.info(f"✅ Webhook set to: {webhook_url}")
-    
-    # Initialize application
-    await application.initialize()
-    await application.start()
-    
-    logger.info("✅ Telegram bot started successfully with webhook!")
-
-# Initialize bot when app starts
-@app.before_first_request
-def initialize_bot():
-    import asyncio
     try:
-        # Run the async setup
-        asyncio.run(setup_bot())
+        # Create Application
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # Add handlers
+        application.add_handler(CommandHandler("start", start_command))
+        application.add_handler(CommandHandler("menu", menu_command))
+        application.add_handler(CommandHandler("categories", categories_command))
+        application.add_handler(CommandHandler("all", all_command))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        # Set bot commands
+        await application.bot.set_my_commands([
+            ("start", "🚀 Start the bot"),
+            ("menu", "📋 Show main menu"),
+            ("categories", "📂 Browse categories"),
+            ("all", "🍽️ View all items"),
+            ("help", "❓ Get help")
+        ])
+        
+        # Set webhook
+        webhook_url = f"{RENDER_URL}/webhook"
+        await application.bot.set_webhook(webhook_url)
+        logger.info(f"✅ Webhook set to: {webhook_url}")
+        
+        # Initialize application
+        await application.initialize()
+        await application.start()
+        
+        bot_setup_done = True
+        logger.info("✅ Telegram bot started successfully with webhook!")
+        
     except Exception as e:
-        logger.error(f"Failed to initialize bot: {e}")
+        logger.error(f"Bot setup failed: {e}")
+        bot_setup_done = False
+
+# Run bot setup in background
+def start_bot():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(setup_bot())
+
+# Start bot when app starts
+bot_thread = Thread(target=start_bot, daemon=True)
+bot_thread.start()
 
 # For Render deployment
 if __name__ == '__main__':
-    # Initialize bot
-    import asyncio
-    try:
-        asyncio.run(setup_bot())
-    except Exception as e:
-        logger.error(f"Bot setup failed: {e}")
-    
-    # Start Flask app
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
