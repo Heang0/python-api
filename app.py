@@ -4,8 +4,6 @@ import requests
 from flask import Flask, request, jsonify
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
-from threading import Thread
-import time
 
 # Set up logging
 logging.basicConfig(
@@ -19,9 +17,12 @@ app = Flask(__name__)
 # Configuration
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8338081238:AAHeUKy9XL7kgeUUvXdQExCMp9nQtqUhrFQ')
 API_BASE_URL = "https://menuqrcode.onrender.com/api"
+RENDER_URL = "https://python-api-912v.onrender.com"  # Your Render URL
 
-# Global variables
-telegram_app = None
+# Global application instance
+application = None
+
+# Cache
 cache = {
     'store': None,
     'categories': None,
@@ -45,7 +46,7 @@ def home():
     </head>
     <body>
         <h1>🍽️ YSG Store Telegram Bot</h1>
-        <div class="status">✅ Bot is running on Render with Python!</div>
+        <div class="status">✅ Bot is running with Webhook!</div>
         <p>Go to Telegram and send <code>/start</code> to your bot.</p>
     </body>
     </html>
@@ -56,11 +57,22 @@ def health():
     return jsonify({
         'status': 'healthy',
         'platform': 'python',
-        'timestamp': time.time()
+        'webhook': True
     })
 
+# Webhook route - Telegram sends updates here
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
+        update = Update.de_json(request.get_json(), application.bot)
+        application.update_queue.put(update)
+        return 'OK'
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return 'OK', 200
+
 # API functions
-async def api_request(endpoint):
+def api_request(endpoint):
     try:
         response = requests.get(f"{API_BASE_URL}{endpoint}", timeout=10)
         response.raise_for_status()
@@ -69,7 +81,8 @@ async def api_request(endpoint):
         logger.error(f"API Error ({endpoint}): {e}")
         return None
 
-async def get_cached_data():
+def get_cached_data():
+    import time
     current_time = time.time() * 1000  # Convert to milliseconds
     
     if (cache['store'] and cache['products'] and 
@@ -78,17 +91,9 @@ async def get_cached_data():
         return cache['store'], cache['categories'], cache['products']
     
     logger.info("Fetching fresh data from API")
-    store, categories, products = await asyncio.gather(
-        api_request('/stores/public/slug/ysg'),
-        api_request('/categories/store/slug/ysg'),
-        api_request('/products/public-store/slug/ysg'),
-        return_exceptions=True
-    )
-    
-    # Handle exceptions
-    if isinstance(store, Exception): store = None
-    if isinstance(categories, Exception): categories = None
-    if isinstance(products, Exception): products = None
+    store = api_request('/stores/public/slug/ysg')
+    categories = api_request('/categories/store/slug/ysg')
+    products = api_request('/products/public-store/slug/ysg')
     
     if store and products:
         cache['store'] = store
@@ -214,17 +219,17 @@ async def handle_message(update: Update, context: CallbackContext):
 
 async def show_categories(chat_id):
     try:
-        store, categories, products = await get_cached_data()
+        store, categories, products = get_cached_data()
         
         if not categories:
-            await telegram_app.bot.send_message(
+            await application.bot.send_message(
                 chat_id, 
                 "📭 No categories found. Showing all items instead..."
             )
             await handle_all_items(chat_id)
             return
         
-        await telegram_app.bot.send_message(
+        await application.bot.send_message(
             chat_id,
             f"📋 *Categories*\n\n{len(categories)} categories available. Tap one to browse:",
             parse_mode='Markdown',
@@ -233,7 +238,7 @@ async def show_categories(chat_id):
         
     except Exception as e:
         logger.error(f"Show categories error: {e}")
-        await telegram_app.bot.send_message(
+        await application.bot.send_message(
             chat_id,
             "❌ Error loading categories. Please try /menu",
             reply_markup=main_menu_keyboard()
@@ -241,12 +246,12 @@ async def show_categories(chat_id):
 
 async def handle_category(chat_id, category_name):
     try:
-        await telegram_app.bot.send_message(chat_id, f"🔄 Loading {category_name}...")
+        await application.bot.send_message(chat_id, f"🔄 Loading {category_name}...")
         
-        store, categories, products = await get_cached_data()
+        store, categories, products = get_cached_data()
         
         if not products:
-            await telegram_app.bot.send_message(
+            await application.bot.send_message(
                 chat_id,
                 "❌ Menu temporarily unavailable. Please try /refresh",
                 reply_markup=main_menu_keyboard()
@@ -260,31 +265,23 @@ async def handle_category(chat_id, category_name):
                 category_products = [p for p in products if p.get('category') and p['category']['_id'] == category['_id']]
         
         if category_products:
-            await telegram_app.bot.send_message(
+            await application.bot.send_message(
                 chat_id,
                 f"📂 *{category_name}*\n_{len(category_products)} items found_",
                 parse_mode='Markdown'
             )
             
-            for i, product in enumerate(category_products[:15]):  # Limit to 15 items
+            for i, product in enumerate(category_products[:10]):  # Limit to 10 items
                 await send_product(chat_id, product)
-                if i < len(category_products[:15]) - 1:
-                    await asyncio.sleep(0.3)
-            
-            if len(category_products) > 15:
-                await telegram_app.bot.send_message(
-                    chat_id,
-                    f"📝 Showing 15 of {len(category_products)} items."
-                )
                 
         else:
-            await telegram_app.bot.send_message(
+            await application.bot.send_message(
                 chat_id,
                 f"📭 No items found in *{category_name}*.\n\nTry /all to see all items.",
                 parse_mode='Markdown'
             )
             
-        await telegram_app.bot.send_message(
+        await application.bot.send_message(
             chat_id,
             "👇 Continue browsing:",
             reply_markup=main_menu_keyboard()
@@ -292,7 +289,7 @@ async def handle_category(chat_id, category_name):
         
     except Exception as e:
         logger.error(f"Category error: {e}")
-        await telegram_app.bot.send_message(
+        await application.bot.send_message(
             chat_id,
             "❌ Error loading category. Please try /menu",
             reply_markup=main_menu_keyboard()
@@ -300,29 +297,21 @@ async def handle_category(chat_id, category_name):
 
 async def handle_all_items(chat_id):
     try:
-        store, categories, products = await get_cached_data()
+        store, categories, products = get_cached_data()
         
         if products:
-            await telegram_app.bot.send_message(
+            await application.bot.send_message(
                 chat_id,
                 f"🍽️ *All Menu Items*\n_{len(products)} items total_",
                 parse_mode='Markdown'
             )
             
-            for i, product in enumerate(products[:15]):  # Limit to 15 items
+            for i, product in enumerate(products[:8]):  # Limit to 8 items
                 await send_product(chat_id, product)
-                if i < len(products[:15]) - 1:
-                    await asyncio.sleep(0.3)
-            
-            if len(products) > 15:
-                await telegram_app.bot.send_message(
-                    chat_id,
-                    f"📝 Showing 15 of {len(products)} items. Use categories to browse specific items."
-                )
         else:
-            await telegram_app.bot.send_message(chat_id, "📭 No items found in the menu.")
+            await application.bot.send_message(chat_id, "📭 No items found in the menu.")
             
-        await telegram_app.bot.send_message(
+        await application.bot.send_message(
             chat_id,
             "👇 Continue browsing:",
             reply_markup=main_menu_keyboard()
@@ -330,7 +319,7 @@ async def handle_all_items(chat_id):
         
     except Exception as e:
         logger.error(f"All items error: {e}")
-        await telegram_app.bot.send_message(
+        await application.bot.send_message(
             chat_id,
             "❌ Error loading menu. Please try /refresh",
             reply_markup=main_menu_keyboard()
@@ -346,20 +335,20 @@ async def send_product(chat_id, product):
         
         if image_url:
             try:
-                await telegram_app.bot.send_photo(
+                await application.bot.send_photo(
                     chat_id,
                     image_url,
                     caption=caption,
                     parse_mode='Markdown'
                 )
             except Exception as e:
-                await telegram_app.bot.send_message(
+                await application.bot.send_message(
                     chat_id,
                     caption,
                     parse_mode='Markdown'
                 )
         else:
-            await telegram_app.bot.send_message(
+            await application.bot.send_message(
                 chat_id,
                 caption,
                 parse_mode='Markdown'
@@ -373,8 +362,8 @@ async def handle_refresh(chat_id):
     cache['products'] = None
     cache['last_fetch'] = 0
     
-    await telegram_app.bot.send_message(chat_id, "🔄 Refreshing menu data...")
-    await telegram_app.bot.send_message(
+    await application.bot.send_message(chat_id, "🔄 Refreshing menu data...")
+    await application.bot.send_message(
         chat_id,
         "✅ Menu refreshed! Use the buttons below:",
         reply_markup=main_menu_keyboard()
@@ -382,7 +371,7 @@ async def handle_refresh(chat_id):
 
 async def handle_store_info(chat_id):
     try:
-        store, categories, products = await get_cached_data()
+        store, categories, products = get_cached_data()
         
         if store:
             store_info = f"🏪 *{store['name']}*\n\n"
@@ -405,21 +394,21 @@ async def handle_store_info(chat_id):
             if social_links:
                 store_info += '\n🔗 *Follow Us:*\n' + '\n'.join(social_links)
 
-            await telegram_app.bot.send_message(
+            await application.bot.send_message(
                 chat_id,
                 store_info,
                 parse_mode='Markdown',
                 reply_markup=main_menu_keyboard()
             )
         else:
-            await telegram_app.bot.send_message(
+            await application.bot.send_message(
                 chat_id,
                 "❌ Store information not available.",
                 reply_markup=main_menu_keyboard()
             )
     except Exception as e:
         logger.error(f"Store info error: {e}")
-        await telegram_app.bot.send_message(
+        await application.bot.send_message(
             chat_id,
             "❌ Error loading store info.",
             reply_markup=main_menu_keyboard()
@@ -427,21 +416,21 @@ async def handle_store_info(chat_id):
 
 # Setup bot
 async def setup_bot():
-    global telegram_app
+    global application
     
     # Create Application
-    telegram_app = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).build()
     
     # Add handlers
-    telegram_app.add_handler(CommandHandler("start", start_command))
-    telegram_app.add_handler(CommandHandler("menu", menu_command))
-    telegram_app.add_handler(CommandHandler("categories", categories_command))
-    telegram_app.add_handler(CommandHandler("all", all_command))
-    telegram_app.add_handler(CommandHandler("help", help_command))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("menu", menu_command))
+    application.add_handler(CommandHandler("categories", categories_command))
+    application.add_handler(CommandHandler("all", all_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     # Set bot commands
-    await telegram_app.bot.set_my_commands([
+    await application.bot.set_my_commands([
         ("start", "🚀 Start the bot"),
         ("menu", "📋 Show main menu"),
         ("categories", "📂 Browse categories"),
@@ -449,23 +438,35 @@ async def setup_bot():
         ("help", "❓ Get help")
     ])
     
-    # Start polling
-    await telegram_app.initialize()
-    await telegram_app.start()
-    await telegram_app.updater.start_polling()
+    # Set webhook
+    webhook_url = f"{RENDER_URL}/webhook"
+    await application.bot.set_webhook(webhook_url)
+    logger.info(f"✅ Webhook set to: {webhook_url}")
     
-    logger.info("✅ Telegram bot started successfully!")
+    # Initialize application
+    await application.initialize()
+    await application.start()
+    
+    logger.info("✅ Telegram bot started successfully with webhook!")
 
-# Run bot in background
-def run_bot():
+# Initialize bot when app starts
+@app.before_first_request
+def initialize_bot():
     import asyncio
-    asyncio.run(setup_bot())
+    try:
+        # Run the async setup
+        asyncio.run(setup_bot())
+    except Exception as e:
+        logger.error(f"Failed to initialize bot: {e}")
 
-# Start everything
+# For Render deployment
 if __name__ == '__main__':
-    # Start bot in background thread
-    bot_thread = Thread(target=run_bot, daemon=True)
-    bot_thread.start()
+    # Initialize bot
+    import asyncio
+    try:
+        asyncio.run(setup_bot())
+    except Exception as e:
+        logger.error(f"Bot setup failed: {e}")
     
     # Start Flask app
     port = int(os.environ.get('PORT', 5000))
