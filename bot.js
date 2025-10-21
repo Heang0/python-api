@@ -12,7 +12,7 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({ 
     status: 'healthy', 
-    service: 'YSG Telegram Bot',
+    service: 'YSG Machine Bot',
     timestamp: new Date().toISOString()
   });
 });
@@ -28,6 +28,7 @@ app.listen(PORT, () => {
 // Telegram Bot Configuration
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const API_BASE_URL = 'https://menuqrcode.onrender.com/api';
+const SALES_TELEGRAM_USERNAME = 'Emma_Heang';
 
 // Create bot instance
 const bot = new TelegramBot(token, { 
@@ -136,7 +137,33 @@ function optimizeImageUrl(url) {
     return url;
 }
 
-// Show single product with image
+// Function to create product inquiry message
+function createInquiryMessage(product) {
+    let message = `🛒 *NEW PRODUCT INQUIRY*\n\n`;
+    message += `⚙️ *Product:* ${product.title}\n`;
+    
+    if (product.price) {
+        message += `💰 *Price:* ${product.price}\n`;
+    }
+    
+    if (product.category && product.category.name) {
+        message += `📁 *Category:* ${product.category.name}\n`;
+    }
+    
+    if (product.description) {
+        // Truncate long descriptions
+        const desc = product.description.length > 200 
+            ? product.description.substring(0, 200) + '...' 
+            : product.description;
+        message += `📋 *Description:* ${desc}\n`;
+    }
+    
+    message += `\n📞 *Please contact this customer for more details*`;
+    
+    return message;
+}
+
+// Show single product with image and contact option
 async function showProductDetail(chatId, product) {
     try {
         const imageUrl = getProductImage(product);
@@ -160,9 +187,13 @@ async function showProductDetail(chatId, product) {
             caption += `\n📁 *Category:* ${product.category.name}`;
         }
         
-        // Add navigation buttons
+        // Add navigation buttons with CONTACT option
         const keyboard = {
             inline_keyboard: [
+                [
+                    { text: '📞 Contact Sales', callback_data: `contact_${product._id}` },
+                    { text: '👁️ View Details', callback_data: `details_${product._id}` }
+                ],
                 [
                     { text: '📁 Back to Categories', callback_data: 'back_to_categories' },
                     { text: '🔧 All Products', callback_data: 'show_all_items' }
@@ -191,6 +222,87 @@ async function showProductDetail(chatId, product) {
     } catch (error) {
         console.error('Error showing product detail:', error);
         await bot.sendMessage(chatId, '❌ Failed to load product details. Please try again.');
+    }
+}
+
+// Handle contact sales request
+async function handleContactSales(chatId, productId) {
+    try {
+        const { products } = await getMenuData();
+        const product = products.find(p => p._id === productId);
+        
+        if (!product) {
+            await bot.sendMessage(chatId, '❌ Product not found.');
+            return;
+        }
+        
+        // Create the inquiry message
+        const inquiryMessage = createInquiryMessage(product);
+        
+        // Get user info for the inquiry
+        const user = await bot.getChat(chatId);
+        const userName = user.first_name || 'Customer';
+        const userUsername = user.username ? `(@${user.username})` : '';
+        
+        // Add user info to the message
+        const fullInquiryMessage = `${inquiryMessage}\n\n👤 *Customer:* ${userName} ${userUsername}\n🆔 *User ID:* ${chatId}`;
+        
+        // Create contact keyboard with direct message link
+        const contactKeyboard = {
+            inline_keyboard: [
+                [
+                    { 
+                        text: '📞 Message Customer', 
+                        url: `https://t.me/${user.username ? user.username : `user?id=${chatId}`}`
+                    }
+                ],
+                [
+                    { 
+                        text: '⚙️ View Product', 
+                        callback_data: `details_${product._id}`
+                    }
+                ]
+            ]
+        };
+        
+        // Send confirmation to customer
+        await bot.sendMessage(chatId, 
+            `✅ *Sales team notified!*\n\n` +
+            `We've sent your inquiry for *${product.title}* to our sales team.\n` +
+            `They will contact you shortly with more details.\n\n` +
+            `📞 *Our Sales Contact:* @${SALES_TELEGRAM_USERNAME}`,
+            { parse_mode: 'Markdown' }
+        );
+        
+        // In a real scenario, you would send this to your sales team
+        // For now, we'll log it and you can set up forwarding
+        console.log('🛒 PRODUCT INQUIRY:', {
+            product: product.title,
+            price: product.price,
+            customer: userName,
+            username: user.username,
+            userId: chatId,
+            timestamp: new Date().toISOString()
+        });
+        
+        // Send inquiry to sales (you can modify this to actually message your sales account)
+        await bot.sendMessage(chatId, 
+            `📋 *For Sales Team - Product Inquiry:*\n\n${fullInquiryMessage}`,
+            { 
+                parse_mode: 'Markdown',
+                reply_markup: contactKeyboard
+            }
+        );
+        
+        // If you want to automatically forward to sales account, you would need:
+        // await bot.sendMessage(SALES_CHAT_ID, fullInquiryMessage, { parse_mode: 'Markdown' });
+        
+    } catch (error) {
+        console.error('Error handling contact sales:', error);
+        await bot.sendMessage(chatId, 
+            `❌ Failed to send inquiry. Please contact @${SALES_TELEGRAM_USERNAME} directly.\n\n` +
+            `Product: ${product.title}\nPrice: ${product.price || 'N/A'}`
+        );
     }
 }
 
@@ -327,7 +439,7 @@ async function showProductsByCategory(chatId, products, categoryName) {
         inlineKeyboard.push([
             { 
                 text: `👁️ View ${product.title}`, 
-                callback_data: `product_${product._id}` 
+                callback_data: `details_${product._id}` 
             }
         ]);
         
@@ -394,7 +506,7 @@ async function showAllProducts(chatId, products, title) {
             inlineKeyboard.push([
                 { 
                     text: `👁️ View ${product.title}`, 
-                    callback_data: `product_${product._id}` 
+                    callback_data: `details_${product._id}` 
                 }
             ]);
             
@@ -440,8 +552,8 @@ bot.on('callback_query', async (callbackQuery) => {
     const data = callbackQuery.data;
 
     try {
-        if (data.startsWith('product_')) {
-            const productId = data.replace('product_', '');
+        if (data.startsWith('details_')) {
+            const productId = data.replace('details_', '');
             const { products } = await getMenuData();
             const product = products.find(p => p._id === productId);
             
@@ -450,6 +562,10 @@ bot.on('callback_query', async (callbackQuery) => {
             } else {
                 await bot.sendMessage(chatId, '❌ Product not found.');
             }
+            
+        } else if (data.startsWith('contact_')) {
+            const productId = data.replace('contact_', '');
+            await handleContactSales(chatId, productId);
             
         } else if (data === 'back_to_categories') {
             await showYSGMenu(chatId);
@@ -476,7 +592,7 @@ bot.on('callback_query', async (callbackQuery) => {
 // Help command
 bot.onText(/\/help/, (msg) => {
     const chatId = msg.chat.id;
-    const helpMessage = `🤖 *YSG Machine Bot Help*\n\n*Commands:*\n/start - Show YSG Machine Catalog\n/help - Show this help\n\n*Features:*\n• Browse all machine categories\n• View product images and details\n• See prices and specifications\n• Real-time catalog updates\n• Cached for fast loading\n\n🔄 Use Refresh button to get latest catalog`;
+    const helpMessage = `🤖 *YSG Machine Bot Help*\n\n*Commands:*\n/start - Show YSG Machine Catalog\n/help - Show this help\n\n*Features:*\n• Browse all machine categories\n• View product images and details\n• Contact sales team directly\n• See prices and specifications\n• Real-time catalog updates\n\n📞 *Sales Contact:* @${SALES_TELEGRAM_USERNAME}`;
     
     bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
 });
