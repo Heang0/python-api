@@ -1,16 +1,16 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+from telegram.ext import CallbackContext
 from bot.menu_api import MenuAPI
 
-async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def show_categories(update: Update, context: CallbackContext):
     """Show all categories"""
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
     categories = MenuAPI.get_categories()
     
     if not categories:
-        await query.edit_message_text("No categories available at the moment.")
+        query.edit_message_text("No categories available at the moment.")
         return
     
     # Create category buttons (2 per row)
@@ -31,17 +31,17 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
+    query.edit_message_text(
         "📂 Select a Category:",
         reply_markup=reply_markup
     )
 
-async def handle_category_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_category_select(update: Update, context: CallbackContext):
     """Handle category selection"""
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
     category_id = query.data.replace("category_", "")
     
     from bot.handlers.products import show_products
-    await show_products(update, context, category_id)
+    show_products(update, context, category_id)

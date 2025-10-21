@@ -1,16 +1,16 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+from telegram.ext import CallbackContext
 from bot.menu_api import MenuAPI
 
-async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id=None):
+def show_products(update: Update, context: CallbackContext, category_id=None):
     """Show products in a category"""
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
     products = MenuAPI.get_products(category_id)
     
     if not products:
-        await query.edit_message_text("No products found in this category.")
+        query.edit_message_text("No products found in this category.")
         return
     
     # Get category name for title
@@ -48,7 +48,7 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE, cate
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await query.edit_message_text(
+    query.edit_message_text(
         message,
         reply_markup=reply_markup,
         parse_mode='Markdown'

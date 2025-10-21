@@ -1,7 +1,7 @@
 import os
 import logging
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from dotenv import load_dotenv
 
 from bot.menu_api import MenuAPI
@@ -24,33 +24,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def setup_bot():
-    """Setup and return the bot application"""
-    # Initialize MenuAPI with config
-    MenuAPI.API_BASE_URL = API_BASE_URL
-    MenuAPI.STORE_SLUG = STORE_SLUG
-    
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
-    # Add handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("menu", start))
-    application.add_handler(CallbackQueryHandler(show_categories, pattern="^categories$"))
-    application.add_handler(CallbackQueryHandler(handle_category_select, pattern="^category_"))
-    application.add_handler(CallbackQueryHandler(show_products, pattern="^products_"))
-    application.add_handler(CallbackQueryHandler(store_info, pattern="^store_info$"))
-    application.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
-    
-    return application
-
 def main():
     """Start the bot"""
     try:
-        application = setup_bot()
+        # Initialize MenuAPI with config
+        MenuAPI.API_BASE_URL = API_BASE_URL
+        MenuAPI.STORE_SLUG = STORE_SLUG
+        
+        # Use Updater instead of Application (for v13.x)
+        updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
+        dispatcher = updater.dispatcher
+        
+        # Add handlers
+        dispatcher.add_handler(CommandHandler("start", start))
+        dispatcher.add_handler(CommandHandler("menu", start))
+        dispatcher.add_handler(CallbackQueryHandler(show_categories, pattern="^categories$"))
+        dispatcher.add_handler(CallbackQueryHandler(handle_category_select, pattern="^category_"))
+        dispatcher.add_handler(CallbackQueryHandler(show_products, pattern="^products_"))
+        dispatcher.add_handler(CallbackQueryHandler(store_info, pattern="^store_info$"))
+        dispatcher.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
         
         # Start the Bot
         logger.info("Bot is starting...")
-        application.run_polling()
+        updater.start_polling()
+        updater.idle()
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
