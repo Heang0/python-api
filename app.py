@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from threading import Thread
+import threading
 
 # Set up logging
 logging.basicConfig(
@@ -20,7 +21,7 @@ app = Flask(__name__)
 # Configuration - UPDATE THESE WITH YOUR ACTUAL URLs
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8338081238:AAHeUKy9XL7kgeUUvXdQExCMp9nQtqUhrFQ')
 # Update this to match your actual backend URL
-API_BASE_URL = "https://menuqrcode.onrender.com/api"  # CHANGE THIS!
+API_BASE_URL = "https://menuqrcode.onrender.com/api"  # CHANGE THIS TO YOUR BACKEND URL!
 RENDER_URL = "https://python-api-912v.onrender.com"
 
 # Add API headers if your backend requires authentication
@@ -45,16 +46,21 @@ CACHE_DURATION = 300000  # 5 minutes
 # Flask routes
 @app.route('/')
 def home():
-    return """
+    bot_status = "✅ Done" if bot_setup_done else "❌ Failed"
+    store_status = "✅" if cache['store'] else "❌"
+    categories_status = "✅" if cache['categories'] else "❌" 
+    products_status = "✅" if cache['products'] else "❌"
+    
+    return f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>YSG Telegram Bot</title>
         <style>
-            body { font-family: Arial, sans-serif; margin: 40px; text-align: center; }
-            .status { color: #22c55e; font-size: 24px; margin: 20px 0; }
-            .error { color: #ef4444; }
-            .debug { margin: 20px; padding: 15px; background: #f3f4f6; border-radius: 5px; text-align: left; }
+            body {{ font-family: Arial, sans-serif; margin: 40px; text-align: center; }}
+            .status {{ color: #22c55e; font-size: 24px; margin: 20px 0; }}
+            .error {{ color: #ef4444; }}
+            .debug {{ margin: 20px; padding: 15px; background: #f3f4f6; border-radius: 5px; text-align: left; }}
         </style>
     </head>
     <body>
@@ -64,21 +70,15 @@ def home():
         
         <div class="debug">
             <h3>Debug Info:</h3>
-            <p><strong>Bot Setup:</strong> {}</p>
-            <p><strong>API Base URL:</strong> {}</p>
-            <p><strong>Cache Status:</strong> Store: {}, Categories: {}, Products: {}</p>
+            <p><strong>Bot Setup:</strong> {bot_status}</p>
+            <p><strong>API Base URL:</strong> {API_BASE_URL}</p>
+            <p><strong>Cache Status:</strong> Store: {store_status}, Categories: {categories_status}, Products: {products_status}</p>
             <a href="/debug/api">Test API Connection</a> | 
             <a href="/health">Health Check</a>
         </div>
     </body>
     </html>
-    """.format(
-        "✅ Done" if bot_setup_done else "❌ Failed",
-        API_BASE_URL,
-        "✅" if cache['store'] else "❌",
-        "✅" if cache['categories'] else "❌", 
-        "✅" if cache['products'] else "❌"
-    )
+    """
 
 @app.route('/health')
 def health():
@@ -104,7 +104,6 @@ def debug_api():
         'store_endpoint_working': bool(store),
         'categories_endpoint_working': bool(categories),
         'products_endpoint_working': bool(products),
-        'store_data_sample': store if store else None,
         'categories_count': len(categories) if categories else 0,
         'products_count': len(products) if products else 0,
         'cache_fresh': time.time() * 1000 - cache['last_fetch'] < CACHE_DURATION
@@ -115,6 +114,7 @@ def debug_api():
 # Webhook route - Telegram sends updates here
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    global application
     try:
         if application is None:
             logger.error("Application not initialized")
@@ -126,27 +126,19 @@ def webhook():
             logger.error("No JSON data in webhook request")
             return 'No data', 400
             
-        logger.info(f"Received update: {update_data}")
+        logger.info(f"Received webhook update")
         
         # Create Update object
         update = Update.de_json(update_data, application.bot)
         
-        # Process the update asynchronously
-        async def process_update():
-            try:
-                await application.process_update(update)
-                logger.info("Update processed successfully")
-            except Exception as e:
-                logger.error(f"Error processing update: {e}")
-        
-        # Run the async function in the event loop
-        asyncio.create_task(process_update())
+        # Use the application's update queue
+        application.update_queue.put_nowait(update)
         
         return 'OK'
         
     except Exception as e:
         logger.error(f"Webhook error: {e}")
-        return 'OK', 200  # Still return OK to prevent Telegram from retrying
+        return 'OK', 200
 
 # API functions
 def api_request(endpoint):
@@ -162,10 +154,9 @@ def api_request(endpoint):
         response.raise_for_status()
         data = response.json()
         
-        # Log the response for debugging
         logger.info(f"API Response from {endpoint}: Status {response.status_code}")
-        
         return data
+        
     except requests.exceptions.RequestException as e:
         logger.error(f"API Request Error ({endpoint}): {e}")
         return None
@@ -174,7 +165,7 @@ def api_request(endpoint):
         return None
 
 def get_cached_data():
-    current_time = time.time() * 1000  # Convert to milliseconds
+    current_time = time.time() * 1000
     
     if (cache['store'] is not None and cache['products'] is not None and 
         (current_time - cache['last_fetch']) < CACHE_DURATION):
@@ -183,49 +174,11 @@ def get_cached_data():
     
     logger.info("Fetching fresh data from API")
     
-    # Try multiple possible endpoint patterns
-    endpoints = [
-        '/stores/public/slug/ysg',
-        '/stores/ysg', 
-        '/api/stores/ysg',
-        '/store/ysg'
-    ]
+    # Try endpoints - adjust these based on your actual API
+    store = api_request('/stores/public/slug/ysg')
+    categories = api_request('/categories/store/slug/ysg')
+    products = api_request('/products/public-store/slug/ysg')
     
-    store = None
-    for endpoint in endpoints:
-        store = api_request(endpoint)
-        if store:
-            break
-    
-    # Try categories endpoints
-    categories_endpoints = [
-        '/categories/store/slug/ysg',
-        '/categories',
-        '/api/categories',
-        '/categories/ysg'
-    ]
-    
-    categories = None
-    for endpoint in categories_endpoints:
-        categories = api_request(endpoint)
-        if categories:
-            break
-    
-    # Try products endpoints  
-    products_endpoints = [
-        '/products/public-store/slug/ysg',
-        '/products',
-        '/api/products',
-        '/products/ysg'
-    ]
-    
-    products = None
-    for endpoint in products_endpoints:
-        products = api_request(endpoint)
-        if products:
-            break
-    
-    # Debug logging
     logger.info(f"Store data: {store is not None}")
     logger.info(f"Categories count: {len(categories) if categories else 0}")
     logger.info(f"Products count: {len(products) if products else 0}")
@@ -249,7 +202,7 @@ def main_menu_keyboard():
 def categories_keyboard(categories):
     keyboard = []
     if categories:
-        for category in categories[:8]:  # Limit to 8 categories
+        for category in categories[:8]:
             category_name = category.get('name') or category.get('title', 'Unknown')
             keyboard.append([KeyboardButton(f"📂 {category_name}")])
     
@@ -284,12 +237,7 @@ Choose an option below:
 • *🍽️ All Items* - View everything
 • *🏪 Store Info* - Contact & location
 • *🔄 Refresh* - Get latest menu
-• *❓ Help* - Get assistance
-
-You can also type commands like:
-/categories - Browse categories
-/all - View all items
-/help - Get help"""
+• *❓ Help* - Get assistance"""
 
     await update.message.reply_text(
         menu_text,
@@ -314,12 +262,6 @@ async def help_command(update: Update, context: CallbackContext):
 /categories - Browse categories
 /all - View all items
 /help - This help message
-
-*How to Use:*
-1. Send /start to begin
-2. Use the menu buttons at the bottom
-3. Browse categories or view all items
-4. Products show with images and prices
 
 *Tips:*
 • Use /refresh if menu seems outdated
@@ -394,35 +336,7 @@ async def handle_category(chat_id, category_name):
             )
             return
         
-        category_products = []
-        if categories:
-            # Find the category by name
-            category = None
-            for cat in categories:
-                cat_name = cat.get('name') or cat.get('title')
-                if cat_name and cat_name.lower() == category_name.lower():
-                    category = cat
-                    break
-            
-            if category:
-                # Filter products by category ID or name
-                for product in products:
-                    product_category = product.get('category')
-                    if isinstance(product_category, dict):
-                        # Category is an object
-                        cat_id = product_category.get('_id') or product_category.get('id')
-                        if cat_id == category.get('_id') or cat_id == category.get('id'):
-                            category_products.append(product)
-                    elif isinstance(product_category, str):
-                        # Category is a string ID or name
-                        if (product_category == category.get('_id') or 
-                            product_category == category.get('id') or
-                            product_category.lower() == category_name.lower()):
-                            category_products.append(product)
-        
-        # If no category filtering worked, show all products
-        if not category_products:
-            category_products = products
+        category_products = products  # Show all products for now
         
         if category_products:
             await application.bot.send_message(
@@ -431,7 +345,7 @@ async def handle_category(chat_id, category_name):
                 parse_mode='Markdown'
             )
             
-            for i, product in enumerate(category_products[:8]):  # Limit to 8 items
+            for i, product in enumerate(category_products[:6]):
                 await send_product(chat_id, product)
                 
         else:
@@ -466,7 +380,7 @@ async def handle_all_items(chat_id):
                 parse_mode='Markdown'
             )
             
-            for i, product in enumerate(products[:6]):  # Limit to 6 items
+            for i, product in enumerate(products[:6]):
                 await send_product(chat_id, product)
                 
             if len(products) > 6:
@@ -498,21 +412,16 @@ async def handle_all_items(chat_id):
 
 async def send_product(chat_id, product):
     try:
-        # Handle different field name possibilities
         title = product.get('title') or product.get('name', 'Unnamed Product')
         price = product.get('price')
         description = product.get('description') or product.get('desc', '')
-        is_available = product.get('isAvailable', product.get('available', True))
         
         price_text = f" - ${price}" if price else ''
-        available = '❌ ' if is_available is False else '✅ '
-        caption = f"{available}*{title}*{price_text}\n{description}"
+        caption = f"🍽️ *{title}*{price_text}\n{description}"
         
-        # Handle image URL - try multiple possible field names
-        image_url = (product.get('image') or product.get('imageUrl') or 
-                    product.get('image_url') or product.get('photo'))
+        image_url = product.get('image') or product.get('imageUrl')
         
-        if image_url and isinstance(image_url, str) and image_url.startswith(('http', 'https')):
+        if image_url:
             try:
                 await application.bot.send_photo(
                     chat_id,
@@ -524,7 +433,6 @@ async def send_product(chat_id, product):
             except Exception as e:
                 logger.warning(f"Could not send photo for {title}: {e}")
         
-        # Fallback to text message if image fails or doesn't exist
         await application.bot.send_message(
             chat_id,
             caption,
@@ -535,7 +443,6 @@ async def send_product(chat_id, product):
         logger.error(f"Send product error for {product.get('title', 'unknown')}: {e}")
 
 async def handle_refresh(chat_id):
-    # Clear cache
     cache['store'] = None
     cache['categories'] = None
     cache['products'] = None
@@ -543,13 +450,12 @@ async def handle_refresh(chat_id):
     
     await application.bot.send_message(chat_id, "🔄 Refreshing menu data...")
     
-    # Force fresh data fetch
     store, categories, products = get_cached_data()
     
     if products:
         await application.bot.send_message(
             chat_id,
-            f"✅ Menu refreshed! Found {len(products)} items. Use the buttons below:",
+            f"✅ Menu refreshed! Found {len(products)} items.",
             reply_markup=main_menu_keyboard()
         )
     else:
@@ -573,21 +479,7 @@ async def handle_store_info(chat_id):
                 store_info += f"📍 *Address:* {store['address']}\n"
             if store.get('phone'):
                 store_info += f"📞 *Phone:* {store['phone']}\n"
-            if store.get('email'):
-                store_info += f"📧 *Email:* {store['email']}\n"
             
-            # Social links
-            social_links = []
-            if store.get('facebookUrl'):
-                social_links.append(f"• [Facebook]({store['facebookUrl']})")
-            if store.get('telegramUrl'):
-                social_links.append(f"• [Telegram]({store['telegramUrl']})")
-            if store.get('websiteUrl'):
-                social_links.append(f"• [Website]({store['websiteUrl']})")
-            
-            if social_links:
-                store_info += '\n🔗 *Follow Us:*\n' + '\n'.join(social_links)
-
             await application.bot.send_message(
                 chat_id,
                 store_info,
@@ -597,7 +489,7 @@ async def handle_store_info(chat_id):
         else:
             await application.bot.send_message(
                 chat_id,
-                "🏪 *YSG Store*\n\n📍 Visit us for delicious food!\n\nUse the buttons below to browse our menu.",
+                "🏪 *YSG Store*\n\n📍 Visit us for delicious food!",
                 parse_mode='Markdown',
                 reply_markup=main_menu_keyboard()
             )
@@ -614,7 +506,7 @@ async def setup_bot():
     global application, bot_setup_done
     
     try:
-        # Create Application
+        logger.info("Starting bot setup...")
         application = Application.builder().token(BOT_TOKEN).build()
         
         # Add handlers
@@ -627,20 +519,24 @@ async def setup_bot():
         
         # Set bot commands
         await application.bot.set_my_commands([
-            ("start", "🚀 Start the bot"),
-            ("menu", "📋 Show main menu"),
-            ("categories", "📂 Browse categories"),
-            ("all", "🍽️ View all items"),
-            ("help", "❓ Get help")
+            ("start", "Start the bot"),
+            ("menu", "Show main menu"),
+            ("categories", "Browse categories"),
+            ("all", "View all items"),
+            ("help", "Get help")
         ])
         
         # Set webhook
         webhook_url = f"{RENDER_URL}/webhook"
         await application.bot.set_webhook(webhook_url)
-        logger.info(f"✅ Webhook set to: {webhook_url}")
+        logger.info(f"Webhook set to: {webhook_url}")
+        
+        # Initialize the application
+        await application.initialize()
+        await application.start()
         
         bot_setup_done = True
-        logger.info("✅ Telegram bot started successfully with webhook!")
+        logger.info("Telegram bot started successfully with webhook!")
         
     except Exception as e:
         logger.error(f"Bot setup failed: {e}")
@@ -650,11 +546,14 @@ async def setup_bot():
 
 # Run bot setup in background
 def start_bot():
+    logger.info("Starting bot thread...")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(setup_bot())
+    logger.info("Bot setup completed in thread")
 
 # Start bot when app starts
+logger.info("Starting Flask app...")
 bot_thread = Thread(target=start_bot, daemon=True)
 bot_thread.start()
 
