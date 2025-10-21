@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: ysg-telegram-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot.telegram_bot
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: API_BASE_URL
+        value: https://your-main-api.onrender.com/api
+      - key: STORE_SLUG
+        value: ysg
