@@ -1,8 +1,8 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext
+from telegram.ext import ContextTypes
 from bot.menu_api import MenuAPI
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message and show main menu"""
     store_info = MenuAPI.get_store_info()
     store_name = store_info.get('name', 'YSG Store') if store_info else 'YSG Store'
@@ -15,25 +15,25 @@ def start(update: Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.message:
-        update.message.reply_text(
+        await update.message.reply_text(
             f"Welcome to {store_name}! 🍕\nBrowse our menu:",
             reply_markup=reply_markup
         )
     else:
-        update.callback_query.edit_message_text(
+        await update.callback_query.edit_message_text(
             f"Welcome to {store_name}! 🍕\nBrowse our menu:",
             reply_markup=reply_markup
         )
 
-def store_info(update: Update, context: CallbackContext):
+async def store_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show store information"""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     store_info = MenuAPI.get_store_info()
     
     if not store_info:
-        query.edit_message_text("Store information not available.")
+        await query.edit_message_text("Store information not available.")
         return
     
     # Format store info message
@@ -65,7 +65,7 @@ def store_info(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    query.edit_message_text(
+    await query.edit_message_text(
         message,
         reply_markup=reply_markup,
         parse_mode='Markdown',
