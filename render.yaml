@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web  # ← CHANGE from worker to web
     name: ysg-telegram-bot
     env: node
     plan: free
