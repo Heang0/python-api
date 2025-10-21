@@ -1,14 +1,10 @@
 services:
   - type: worker
     name: ysg-telegram-bot
-    env: python
+    env: node
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot/telegram_bot.py  # ← This path is correct
+    buildCommand: npm install
+    startCommand: npm start
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: API_BASE_URL
-        value: https://menuqrcode.onrender.com/api
-      - key: STORE_SLUG
-        value: ysg
