@@ -40,7 +40,7 @@ const bot = new TelegramBot(token, {
   }
 });
 
-console.log('🤖 YSG Menu Bot is running...');
+console.log('🤖 YSG Machine Bot is running...');
 
 // Cache to store menu data (reduces API calls)
 let menuCache = {
@@ -64,11 +64,11 @@ async function apiRequest(endpoint) {
         console.error('API Error:', error.response?.status, error.message);
         
         if (error.response?.status === 429) {
-            throw new Error('Menu server is busy. Please try again in a moment.');
+            throw new Error('Server is busy. Please try again in a moment.');
         } else if (error.code === 'ECONNABORTED') {
-            throw new Error('Menu server timeout. Please try again.');
+            throw new Error('Server timeout. Please try again.');
         } else {
-            throw new Error('Failed to fetch menu data. Please try again later.');
+            throw new Error('Failed to fetch data. Please try again later.');
         }
     }
 }
@@ -79,11 +79,11 @@ async function getMenuData() {
     
     // Return cached data if it's still valid
     if (menuCache.data && (now - menuCache.timestamp) < menuCache.ttl) {
-        console.log('📦 Using cached menu data');
+        console.log('📦 Using cached data');
         return menuCache.data;
     }
     
-    console.log('🔄 Fetching fresh menu data');
+    console.log('🔄 Fetching fresh data');
     try {
         // Fetch all data with delays to avoid rate limiting
         const store = await apiRequest(`/stores/public/slug/ysg`);
@@ -142,33 +142,33 @@ async function showProductDetail(chatId, product) {
         const imageUrl = getProductImage(product);
         const optimizedImageUrl = optimizeImageUrl(imageUrl);
         
-        let caption = `*${product.title}*\n`;
+        let caption = `⚙️ *${product.title}*\n`;
         
         if (product.price) {
             caption += `💰 *Price:* ${product.price}\n`;
         }
         
         if (product.description) {
-            caption += `📝 *Description:* ${product.description}\n`;
+            caption += `📋 *Description:* ${product.description}\n`;
         }
         
-        const availability = product.isAvailable ? '✅ Available' : '❌ Out of Stock';
+        const availability = product.isAvailable ? '✅ In Stock' : '❌ Out of Stock';
         caption += `\n${availability}`;
         
         // Add category info if available
         if (product.category && product.category.name) {
-            caption += `\n📂 *Category:* ${product.category.name}`;
+            caption += `\n📁 *Category:* ${product.category.name}`;
         }
         
         // Add navigation buttons
         const keyboard = {
             inline_keyboard: [
                 [
-                    { text: '📂 Back to Categories', callback_data: 'back_to_categories' },
-                    { text: '🍽️ All Items', callback_data: 'show_all_items' }
+                    { text: '📁 Back to Categories', callback_data: 'back_to_categories' },
+                    { text: '🔧 All Products', callback_data: 'show_all_items' }
                 ],
                 [
-                    { text: '🔄 Refresh Menu', callback_data: 'refresh_menu' }
+                    { text: '🔄 Refresh', callback_data: 'refresh_menu' }
                 ]
             ]
         };
@@ -199,7 +199,7 @@ bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     
     try {
-        await bot.sendMessage(chatId, '🍽️ *Loading YSG Store Menu...*', { parse_mode: 'Markdown' });
+        await bot.sendMessage(chatId, '⚙️ *Loading YSG Machine Catalog...*', { parse_mode: 'Markdown' });
         await showYSGMenu(chatId);
     } catch (error) {
         console.error('Error showing menu:', error);
@@ -208,9 +208,9 @@ bot.onText(/\/start/, async (msg) => {
 });
 
 // Handle refresh commands
-bot.onText(/🔄 Refresh|📋 Menu|Show Menu/, async (msg) => {
+bot.onText(/🔄 Refresh|📋 Catalog|Show Catalog/, async (msg) => {
     const chatId = msg.chat.id;
-    await bot.sendMessage(chatId, '🔄 *Refreshing menu...*', { parse_mode: 'Markdown' });
+    await bot.sendMessage(chatId, '🔄 *Refreshing catalog...*', { parse_mode: 'Markdown' });
     
     // Clear cache to force fresh data
     menuCache.data = null;
@@ -224,8 +224,8 @@ async function showYSGMenu(chatId) {
         const { store, categories, products } = await getMenuData();
 
         // Send store info
-        let storeInfo = `🏪 *${store.name}*\n\n`;
-        if (store.description) storeInfo += `📝 ${store.description}\n\n`;
+        let storeInfo = `🏭 *${store.name}*\n\n`;
+        if (store.description) storeInfo += `📋 ${store.description}\n\n`;
         if (store.address) storeInfo += `📍 ${store.address}\n`;
         if (store.phone) storeInfo += `📞 ${store.phone}\n`;
 
@@ -247,11 +247,11 @@ async function showYSGMenu(chatId) {
         // Send categories as buttons
         if (categories.length > 0) {
             const categoryButtons = categories.map(category => 
-                [{ text: `📂 ${category.name}` }]
+                [{ text: `📁 ${category.name}` }]
             );
 
-            // Add "All Items" and "Refresh" buttons
-            categoryButtons.unshift([{ text: '🍽️ All Items' }]);
+            // Add "All Products" and "Refresh" buttons
+            categoryButtons.unshift([{ text: '🔧 All Products' }]);
             categoryButtons.push([{ text: '🔄 Refresh' }]);
 
             await bot.sendMessage(chatId, '📋 *Select a Category:*', {
@@ -263,7 +263,7 @@ async function showYSGMenu(chatId) {
                 }
             });
         } else {
-            await showAllProducts(chatId, products, 'All Items');
+            await showAllProducts(chatId, products, 'All Products');
         }
 
     } catch (error) {
@@ -273,7 +273,7 @@ async function showYSGMenu(chatId) {
 }
 
 // Handle category selection
-bot.onText(/📂 (.+)/, async (msg, match) => {
+bot.onText(/📁 (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const categoryName = match[1];
 
@@ -287,20 +287,20 @@ bot.onText(/📂 (.+)/, async (msg, match) => {
             );
             await showProductsByCategory(chatId, categoryProducts, categoryName);
         } else {
-            await showAllProducts(chatId, products, 'All Items');
+            await showAllProducts(chatId, products, 'All Products');
         }
     } catch (error) {
         await bot.sendMessage(chatId, `❌ ${error.message}`);
     }
 });
 
-// Handle "All Items" selection
-bot.onText(/🍽️ All Items/, async (msg) => {
+// Handle "All Products" selection
+bot.onText(/🔧 All Products/, async (msg) => {
     const chatId = msg.chat.id;
 
     try {
         const { products } = await getMenuData();
-        await showAllProducts(chatId, products, 'All Items');
+        await showAllProducts(chatId, products, 'All Products');
     } catch (error) {
         await bot.sendMessage(chatId, `❌ ${error.message}`);
     }
@@ -309,11 +309,11 @@ bot.onText(/🍽️ All Items/, async (msg) => {
 // Show products in a category with inline buttons for details
 async function showProductsByCategory(chatId, products, categoryName) {
     if (products.length === 0) {
-        await bot.sendMessage(chatId, `📭 No items found in ${categoryName}.`);
+        await bot.sendMessage(chatId, `📭 No products found in ${categoryName}.`);
         return;
     }
 
-    let message = `📂 *${categoryName}*\n\n`;
+    let message = `📁 *${categoryName}*\n\n`;
     
     // Create inline keyboard for product details
     const inlineKeyboard = [];
@@ -326,7 +326,7 @@ async function showProductsByCategory(chatId, products, categoryName) {
         // Add inline button for product details
         inlineKeyboard.push([
             { 
-                text: `👀 View ${product.title}`, 
+                text: `👁️ View ${product.title}`, 
                 callback_data: `product_${product._id}` 
             }
         ]);
@@ -336,7 +336,7 @@ async function showProductsByCategory(chatId, products, categoryName) {
             const desc = product.description.length > 100 
                 ? product.description.substring(0, 100) + '...' 
                 : product.description;
-            message += `   📝 ${desc}\n`;
+            message += `   📋 ${desc}\n`;
         }
         
         // Add separator between products
@@ -347,7 +347,7 @@ async function showProductsByCategory(chatId, products, categoryName) {
 
     // Add navigation buttons
     inlineKeyboard.push([
-        { text: '📂 Back to Categories', callback_data: 'back_to_categories' },
+        { text: '📁 Back to Categories', callback_data: 'back_to_categories' },
         { text: '🔄 Refresh', callback_data: 'refresh_menu' }
     ]);
 
@@ -362,11 +362,11 @@ async function showProductsByCategory(chatId, products, categoryName) {
 // Show all products with inline buttons for details
 async function showAllProducts(chatId, products, title) {
     if (products.length === 0) {
-        await bot.sendMessage(chatId, '📭 No items found in the menu.');
+        await bot.sendMessage(chatId, '📭 No products found in the catalog.');
         return;
     }
 
-    let message = `🍽️ *${title}*\n\n`;
+    let message = `🔧 *${title}*\n\n`;
     
     // Group products by category
     const productsByCategory = {};
@@ -383,7 +383,7 @@ async function showAllProducts(chatId, products, title) {
     
     let categoryCount = 0;
     for (const [categoryName, categoryProducts] of Object.entries(productsByCategory)) {
-        message += `📂 *${categoryName}*\n`;
+        message += `📁 *${categoryName}*\n`;
         
         categoryProducts.forEach((product, index) => {
             const price = product.price ? ` - ${product.price}` : '';
@@ -393,7 +393,7 @@ async function showAllProducts(chatId, products, title) {
             // Add inline button for product details
             inlineKeyboard.push([
                 { 
-                    text: `👀 View ${product.title}`, 
+                    text: `👁️ View ${product.title}`, 
                     callback_data: `product_${product._id}` 
                 }
             ]);
@@ -403,7 +403,7 @@ async function showAllProducts(chatId, products, title) {
                 const desc = product.description.length > 80 
                     ? product.description.substring(0, 80) + '...' 
                     : product.description;
-                message += `   📝 ${desc}\n`;
+                message += `   📋 ${desc}\n`;
             }
             
             // Add separator between products in same category
@@ -421,7 +421,7 @@ async function showAllProducts(chatId, products, title) {
 
     // Add navigation buttons
     inlineKeyboard.push([
-        { text: '📂 Categories', callback_data: 'back_to_categories' },
+        { text: '📁 Categories', callback_data: 'back_to_categories' },
         { text: '🔄 Refresh', callback_data: 'refresh_menu' }
     ]);
 
@@ -456,11 +456,11 @@ bot.on('callback_query', async (callbackQuery) => {
             
         } else if (data === 'show_all_items') {
             const { products } = await getMenuData();
-            await showAllProducts(chatId, products, 'All Items');
+            await showAllProducts(chatId, products, 'All Products');
             
         } else if (data === 'refresh_menu') {
             menuCache.data = null;
-            await bot.sendMessage(chatId, '🔄 *Refreshing menu...*', { parse_mode: 'Markdown' });
+            await bot.sendMessage(chatId, '🔄 *Refreshing catalog...*', { parse_mode: 'Markdown' });
             await showYSGMenu(chatId);
         }
         
@@ -476,7 +476,7 @@ bot.on('callback_query', async (callbackQuery) => {
 // Help command
 bot.onText(/\/help/, (msg) => {
     const chatId = msg.chat.id;
-    const helpMessage = `🤖 *YSG Menu Bot Help*\n\n*Commands:*\n/start - Show YSG Store Menu\n/help - Show this help\n\n*Features:*\n• Browse all menu categories\n• View product images and details\n• See prices and descriptions\n• Real-time menu updates\n• Cached for fast loading\n\n🔄 Use Refresh button to get latest menu`;
+    const helpMessage = `🤖 *YSG Machine Bot Help*\n\n*Commands:*\n/start - Show YSG Machine Catalog\n/help - Show this help\n\n*Features:*\n• Browse all machine categories\n• View product images and details\n• See prices and specifications\n• Real-time catalog updates\n• Cached for fast loading\n\n🔄 Use Refresh button to get latest catalog`;
     
     bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
 });
@@ -489,10 +489,10 @@ bot.on('message', (msg) => {
     // Ignore messages that are already handled by other handlers
     if (!text.startsWith('/') && 
         text !== '🔄 Refresh' && 
-        text !== '🍽️ All Items' && 
-        !text.startsWith('📂')) {
+        text !== '🔧 All Products' && 
+        !text.startsWith('📁')) {
         
-        bot.sendMessage(chatId, '🤔 Type /start to see the YSG menu or /help for assistance.');
+        bot.sendMessage(chatId, '🤔 Type /start to see the YSG machine catalog or /help for assistance.');
     }
 });
 
@@ -511,4 +511,4 @@ bot.on('polling_error', (error) => {
     }
 });
 
-console.log('✅ YSG Menu Bot started successfully!');
+console.log('✅ YSG Machine Bot started successfully!');
