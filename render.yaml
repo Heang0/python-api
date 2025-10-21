@@ -1,10 +1,10 @@
 services:
-  - type: worker  # ← CHANGE THIS from 'web' to 'worker'
+  - type: worker  # ← CHANGE THIS
     name: ysg-telegram-bot
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m bot.telegram_bot  # ← CHANGE THIS
+    startCommand: python -m bot.telegram_bot  # ← DIRECT BOT START
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false

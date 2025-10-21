@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from dotenv import load_dotenv
@@ -24,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def main():
+async def main():
     """Start the bot"""
     try:
         # Initialize MenuAPI with config
@@ -44,10 +45,10 @@ def main():
         
         # Start the Bot
         logger.info("Bot is starting...")
-        application.run_polling()
+        await application.run_polling()
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
