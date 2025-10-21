@@ -1,10 +1,10 @@
 services:
-  - type: worker  # ← CHANGE THIS
+  - type: worker
     name: ysg-telegram-bot
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m bot.telegram_bot  # ← DIRECT BOT START
+    startCommand: python bot/telegram_bot.py  # ← This path is correct
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false

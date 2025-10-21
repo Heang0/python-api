@@ -1,8 +1,7 @@
 import os
 import logging
-import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from dotenv import load_dotenv
 
 from bot.menu_api import MenuAPI
@@ -25,30 +24,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def main():
+def main():
     """Start the bot"""
     try:
         # Initialize MenuAPI with config
         MenuAPI.API_BASE_URL = API_BASE_URL
         MenuAPI.STORE_SLUG = STORE_SLUG
         
-        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        # Use Updater (sync version)
+        updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
+        dispatcher = updater.dispatcher
         
         # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("menu", start))
-        application.add_handler(CallbackQueryHandler(show_categories, pattern="^categories$"))
-        application.add_handler(CallbackQueryHandler(handle_category_select, pattern="^category_"))
-        application.add_handler(CallbackQueryHandler(show_products, pattern="^products_"))
-        application.add_handler(CallbackQueryHandler(store_info, pattern="^store_info$"))
-        application.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
+        dispatcher.add_handler(CommandHandler("start", start))
+        dispatcher.add_handler(CommandHandler("menu", start))
+        dispatcher.add_handler(CallbackQueryHandler(show_categories, pattern="^categories$"))
+        dispatcher.add_handler(CallbackQueryHandler(handle_category_select, pattern="^category_"))
+        dispatcher.add_handler(CallbackQueryHandler(show_products, pattern="^products_"))
+        dispatcher.add_handler(CallbackQueryHandler(store_info, pattern="^store_info$"))
+        dispatcher.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
         
         # Start the Bot
         logger.info("Bot is starting...")
-        await application.run_polling()
+        updater.start_polling()
+        logger.info("Bot started successfully!")
+        updater.idle()  # This keeps the bot running
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
