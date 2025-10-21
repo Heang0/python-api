@@ -426,7 +426,7 @@ async def setup_bot():
     global application, bot_setup_done
     
     try:
-        # Create Application
+        # Create Application (using new API for version 20.x+)
         application = Application.builder().token(BOT_TOKEN).build()
         
         # Add handlers
@@ -451,10 +451,8 @@ async def setup_bot():
         await application.bot.set_webhook(webhook_url)
         logger.info(f"✅ Webhook set to: {webhook_url}")
         
-        # Initialize application
-        await application.initialize()
-        await application.start()
-        
+        # For version 20.x+, we don't need to call initialize() and start() manually
+        # when using webhooks with Flask
         bot_setup_done = True
         logger.info("✅ Telegram bot started successfully with webhook!")
         
