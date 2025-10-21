@@ -10,14 +10,71 @@ const bot = new TelegramBot(token, { polling: true });
 
 console.log('🤖 YSG Menu Bot is running...');
 
-// Helper function to make API requests
+// Cache to store menu data (reduces API calls)
+let menuCache = {
+    data: null,
+    timestamp: 0,
+    ttl: 5 * 60 * 1000 // 5 minutes cache
+};
+
+// Helper function to make API requests with retry logic
 async function apiRequest(endpoint) {
     try {
-        const response = await axios.get(`${API_BASE_URL}${endpoint}`);
+        console.log(`📡 API Request: ${endpoint}`);
+        const response = await axios.get(`${API_BASE_URL}${endpoint}`, {
+            timeout: 10000, // 10 second timeout
+            headers: {
+                'User-Agent': 'YSG-Telegram-Bot/1.0'
+            }
+        });
         return response.data;
     } catch (error) {
-        console.error('API Error:', error.message);
-        throw new Error('Failed to fetch menu data');
+        console.error('API Error:', error.response?.status, error.message);
+        
+        if (error.response?.status === 429) {
+            throw new Error('Menu server is busy. Please try again in a moment.');
+        } else if (error.code === 'ECONNABORTED') {
+            throw new Error('Menu server timeout. Please try again.');
+        } else {
+            throw new Error('Failed to fetch menu data. Please try again later.');
+        }
+    }
+}
+
+// Get cached menu data or fetch fresh
+async function getMenuData() {
+    const now = Date.now();
+    
+    // Return cached data if it's still valid
+    if (menuCache.data && (now - menuCache.timestamp) < menuCache.ttl) {
+        console.log('📦 Using cached menu data');
+        return menuCache.data;
+    }
+    
+    console.log('🔄 Fetching fresh menu data');
+    try {
+        // Fetch all data in parallel with delays
+        const [store, categories, products] = await Promise.all([
+            apiRequest(`/stores/public/slug/ysg`),
+            new Promise(resolve => setTimeout(() => resolve(apiRequest(`/categories/store/slug/ysg`)), 500)),
+            new Promise(resolve => setTimeout(() => resolve(apiRequest(`/products/public-store/slug/ysg`)), 1000))
+        ]);
+        
+        // Cache the data
+        menuCache = {
+            data: { store, categories, products },
+            timestamp: now,
+            ttl: 5 * 60 * 1000 // 5 minutes
+        };
+        
+        return menuCache.data;
+    } catch (error) {
+        // If fresh fetch fails, try to return cached data even if expired
+        if (menuCache.data) {
+            console.log('⚠️ Using expired cache due to API error');
+            return menuCache.data;
+        }
+        throw error;
     }
 }
 
@@ -26,32 +83,25 @@ bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     
     try {
+        await bot.sendMessage(chatId, '🍽️ *Loading YSG Store Menu...*', { parse_mode: 'Markdown' });
         await showYSGMenu(chatId);
     } catch (error) {
         console.error('Error showing menu:', error);
-        await bot.sendMessage(chatId, '❌ Sorry, the menu is currently unavailable. Please try again later.');
+        await bot.sendMessage(chatId, `❌ ${error.message}`);
     }
 });
 
 // Handle refresh commands
 bot.onText(/🔄 Refresh|📋 Menu|Show Menu/, async (msg) => {
     const chatId = msg.chat.id;
+    await bot.sendMessage(chatId, '🔄 *Refreshing menu...*', { parse_mode: 'Markdown' });
     await showYSGMenu(chatId);
 });
 
 // Main function to show YSG store menu
 async function showYSGMenu(chatId) {
     try {
-        await bot.sendMessage(chatId, '🍽️ *Loading YSG Store Menu...*', { parse_mode: 'Markdown' });
-
-        // Get store details
-        const store = await apiRequest(`/stores/public/slug/ysg`);
-        
-        // Get categories
-        const categories = await apiRequest(`/categories/store/slug/ysg`);
-        
-        // Get all products
-        const products = await apiRequest(`/products/public-store/slug/ysg`);
+        const { store, categories, products } = await getMenuData();
 
         // Send store info
         let storeInfo = `🏪 *${store.name}*\n`;
@@ -85,7 +135,7 @@ async function showYSGMenu(chatId) {
 
     } catch (error) {
         console.error('Error showing YSG menu:', error);
-        await bot.sendMessage(chatId, '❌ YSG menu is currently unavailable. Please try again later.');
+        await bot.sendMessage(chatId, `❌ ${error.message}`);
     }
 }
 
@@ -95,9 +145,7 @@ bot.onText(/📂 (.+)/, async (msg, match) => {
     const categoryName = match[1];
 
     try {
-        // Get all products and filter by category name
-        const products = await apiRequest(`/products/public-store/slug/ysg`);
-        const categories = await apiRequest(`/categories/store/slug/ysg`);
+        const { products, categories } = await getMenuData();
         
         const category = categories.find(cat => cat.name === categoryName);
         if (category) {
@@ -109,7 +157,7 @@ bot.onText(/📂 (.+)/, async (msg, match) => {
             await showAllProducts(chatId, products, 'All Items');
         }
     } catch (error) {
-        await bot.sendMessage(chatId, '❌ Error loading category. Please try Refresh.');
+        await bot.sendMessage(chatId, `❌ ${error.message}`);
     }
 });
 
@@ -118,10 +166,10 @@ bot.onText(/🍽️ All Items/, async (msg) => {
     const chatId = msg.chat.id;
 
     try {
-        const products = await apiRequest(`/products/public-store/slug/ysg`);
+        const { products } = await getMenuData();
         await showAllProducts(chatId, products, 'All Items');
     } catch (error) {
-        await bot.sendMessage(chatId, '❌ Error loading menu. Please try Refresh.');
+        await bot.sendMessage(chatId, `❌ ${error.message}`);
     }
 });
 
