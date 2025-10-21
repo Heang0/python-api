@@ -24,23 +24,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def setup_bot():
+    """Setup and return the bot application"""
+    # Initialize MenuAPI with config
+    MenuAPI.API_BASE_URL = API_BASE_URL
+    MenuAPI.STORE_SLUG = STORE_SLUG
+    
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", start))
+    application.add_handler(CallbackQueryHandler(show_categories, pattern="^categories$"))
+    application.add_handler(CallbackQueryHandler(handle_category_select, pattern="^category_"))
+    application.add_handler(CallbackQueryHandler(show_products, pattern="^products_"))
+    application.add_handler(CallbackQueryHandler(store_info, pattern="^store_info$"))
+    application.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
+    
+    return application
+
 def main():
     """Start the bot"""
     try:
-        # Initialize MenuAPI with config
-        MenuAPI.API_BASE_URL = API_BASE_URL
-        MenuAPI.STORE_SLUG = STORE_SLUG
-        
-        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-        
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("menu", start))
-        application.add_handler(CallbackQueryHandler(show_categories, pattern="^categories$"))
-        application.add_handler(CallbackQueryHandler(handle_category_select, pattern="^category_"))
-        application.add_handler(CallbackQueryHandler(show_products, pattern="^products_"))
-        application.add_handler(CallbackQueryHandler(store_info, pattern="^store_info$"))
-        application.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
+        application = setup_bot()
         
         # Start the Bot
         logger.info("Bot is starting...")
